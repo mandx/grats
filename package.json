@@ -17,8 +17,10 @@
   },
   "dependencies": {
     "commander": "^10.0.0",
-    "graphql": "^16.6.0",
-    "typescript": "^5.0.2"
+    "graphql": "^16.6.0"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.0.2 <=5.3.3"
   },
   "devDependencies": {
     "@graphql-tools/utils": "^9.2.1",
