@@ -91,10 +91,14 @@ export default class TestRunner {
 
     const fixturePath = path.join(this._fixturesDir, fixture);
     const displayName = path.relative(this._fixturesDir, fixturePath);
-    const expectedContent = fs.readFileSync(expectedFilePath, "utf-8");
+    const expectedContent = fs
+      .readFileSync(expectedFilePath, "utf-8")
+      .replace(
+        /node_modules\/\.pnpm\/typescript(@\d+.\d+.\d+)\/node_modules\/typescript/gm,
+        (match, capture1) => match.replace(capture1, ""),
+      );
 
     const fixtureContent = fs.readFileSync(fixturePath, "utf-8");
-
     const actual = await this.transform(fixtureContent, fixture);
 
     const actualOutput = `-----------------
@@ -104,7 +108,10 @@ ${fixtureContent}
 -----------------
 OUTPUT
 -----------------
-${actual}`;
+${actual}`.replace(
+      /node_modules\/\.pnpm\/typescript(@\d+.\d+.\d+)\/node_modules\/typescript/gm,
+      (match, capture1) => match.replace(capture1, ""),
+    );
 
     if (actualOutput !== expectedContent) {
       if (this._write) {
