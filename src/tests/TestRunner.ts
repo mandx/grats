@@ -46,7 +46,9 @@ export default class TestRunner {
   // Returns true if the test passed
   async run(): Promise<boolean> {
     for (const fixture of this._testFixtures) {
-      await this._testFixture(fixture);
+      if (!this._skip.has(fixture)) {
+        await this._testFixture(fixture);
+      }
     }
     console.log("");
 
@@ -80,50 +82,77 @@ export default class TestRunner {
   async _testFixture(fixture: string) {
     const expectedFileName = fixture + ".expected";
     const expectedFilePath = path.join(this._fixturesDir, expectedFileName);
+
     if (this._otherFiles.has(expectedFileName)) {
       this._otherFiles.delete(expectedFileName);
-    } else {
-      fs.writeFileSync(expectedFilePath, "", "utf-8");
-    }
-    if (this._skip.has(fixture)) {
-      return;
     }
 
     const fixturePath = path.join(this._fixturesDir, fixture);
     const displayName = path.relative(this._fixturesDir, fixturePath);
-    const expectedContent = fs
-      .readFileSync(expectedFilePath, "utf-8")
-      .replace(
-        /node_modules\/\.pnpm\/typescript(@\d+.\d+.\d+)\/node_modules\/typescript/gm,
-        (match, capture1) => match.replace(capture1, ""),
-      );
-
     const fixtureContent = fs.readFileSync(fixturePath, "utf-8");
-    const actual = await this.transform(fixtureContent, fixture);
+    const output = await this.transform(fixtureContent, fixture);
 
-    const actualOutput = `-----------------
+    function stripTypescriptVersionAndSourceLocation(text: string): string {
+      return text.replace(
+        /^\s+node_modules\/\.pnpm\/typescript(@\d+.\d+.\d+)\/node_modules\/typescript\/.+\.(?:t|j)s(:\d+:\d+)$\s+(\d+)\s+/gm,
+        (match, capturedVersion, capturedSrcLocation, capturedLineNumber) =>
+          match
+            .replace(capturedVersion, "")
+            .replace(capturedSrcLocation, "")
+            .replace(capturedLineNumber, ""),
+      );
+    }
+
+    const actualOutput =
+      stripTypescriptVersionAndSourceLocation(`-----------------
 INPUT
 ----------------- 
 ${fixtureContent}
 -----------------
 OUTPUT
 -----------------
-${actual}`.replace(
-      /node_modules\/\.pnpm\/typescript(@\d+.\d+.\d+)\/node_modules\/typescript/gm,
-      (match, capture1) => match.replace(capture1, ""),
-    );
+${output}`);
 
-    if (actualOutput !== expectedContent) {
-      if (this._write) {
-        console.error("UPDATED: " + displayName);
+    const processedOutput =
+      stripTypescriptVersionAndSourceLocation(actualOutput);
+
+    const snapshots: readonly string[] = (() => {
+      const contents = fs.readFileSync(expectedFilePath, "utf-8");
+      try {
+        return JSON.parse(contents);
+      } catch (_) {
+        return [contents];
+      }
+    })().map(stripTypescriptVersionAndSourceLocation);
+
+    let lastRecordedSnapshot = "";
+    for (const snapshot of snapshots) {
+      if (processedOutput === (lastRecordedSnapshot = snapshot)) {
+        console.log("OK: " + displayName);
+        return;
+      }
+    }
+
+    if (this._write) {
+      if (snapshots.length === 1) {
         fs.writeFileSync(expectedFilePath, actualOutput, "utf-8");
+        console.error("UPDATED: " + displayName);
       } else {
-        this._failureCount++;
-        console.error("FAILURE: " + displayName);
-        console.log(diff(expectedContent, actualOutput));
+        fs.writeFileSync(
+          expectedFilePath,
+          JSON.stringify(snapshots.concat(actualOutput)),
+          "utf-8",
+        );
+        console.error("ADDED: " + displayName);
       }
     } else {
-      console.log("OK: " + displayName);
+      this._failureCount++;
+      console.error("FAILURE: " + displayName);
+      console.log(
+        diff(lastRecordedSnapshot, actualOutput, {
+          aAnnotation: "Last recorded snapshot",
+        }),
+      );
     }
   }
 
